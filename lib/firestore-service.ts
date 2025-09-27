@@ -35,6 +35,7 @@ export interface UserProgress {
   subjects: SubjectData[]
   totalTarget: number
   lastUpdated: any
+  lastUpdateDate?: string // YYYY-MM-DD format for easy date comparison
 }
 
 export interface UserProfile {
@@ -54,7 +55,8 @@ class FirestoreService {
     await setDoc(progressRef, {
       subjects,
       totalTarget,
-      lastUpdated: serverTimestamp()
+      lastUpdated: serverTimestamp(),
+      lastUpdateDate: new Date().toISOString().split("T")[0] // Store the date separately for easier comparison
     })
   }
 
@@ -79,31 +81,78 @@ class FirestoreService {
     })
   }
 
+  // Save/update daily progress for specific date
+  async saveDailyProgressForDate(userId: string, dailyProgress: Omit<DailyProgress, 'userId' | 'timestamp'>): Promise<void> {
+    try {
+      // Use date as document ID to ensure one record per date per user
+      const docId = `${userId}_${dailyProgress.date}`
+      const historyRef = doc(db, 'dailyHistory', docId)
+      
+      await setDoc(historyRef, {
+        ...dailyProgress,
+        userId,
+        timestamp: serverTimestamp()
+      }, { merge: true }) // Merge to update existing or create new
+    } catch (error) {
+      console.error('Error saving daily progress for date:', error)
+      throw error
+    }
+  }
+
+  // Get daily progress for specific date
+  async getDailyProgressForDate(userId: string, dateString: string): Promise<DailyProgress | null> {
+    try {
+      const docId = `${userId}_${dateString}`
+      const historyRef = doc(db, 'dailyHistory', docId)
+      const historySnap = await getDoc(historyRef)
+      
+      if (historySnap.exists()) {
+        const data = historySnap.data()
+        return {
+          date: data.date,
+          subjects: data.subjects,
+          total: data.total,
+          userId: data.userId,
+          timestamp: data.timestamp
+        }
+      }
+      return null
+    } catch (error) {
+      console.error('Error getting daily progress for date:', error)
+      return null
+    }
+  }
+
   // Get user's daily history
   async getUserDailyHistory(userId: string, limitCount: number = 7): Promise<DailyProgress[]> {
-    const historyRef = collection(db, 'dailyHistory')
-    const q = query(
-      historyRef,
-      where('userId', '==', userId),
-      orderBy('timestamp', 'desc'),
-      limit(limitCount)
-    )
-    
-    const querySnapshot = await getDocs(q)
-    const history: DailyProgress[] = []
-    
-    querySnapshot.forEach((doc) => {
-      const data = doc.data()
-      history.push({
-        date: data.date,
-        subjects: data.subjects,
-        total: data.total,
-        userId: data.userId,
-        timestamp: data.timestamp
+    try {
+      const historyRef = collection(db, 'dailyHistory')
+      const q = query(
+        historyRef,
+        where('userId', '==', userId),
+        orderBy('date', 'desc'),  // Order by date instead of timestamp for better sorting
+        limit(limitCount)
+      )
+      
+      const querySnapshot = await getDocs(q)
+      const history: DailyProgress[] = []
+      
+      querySnapshot.forEach((doc) => {
+        const data = doc.data()
+        history.push({
+          date: data.date,
+          subjects: data.subjects,
+          total: data.total,
+          userId: data.userId,
+          timestamp: data.timestamp
+        })
       })
-    })
-    
-    return history
+      
+      return history
+    } catch (error) {
+      console.error('Error getting user daily history:', error)
+      return []
+    }
   }
 
   // Save user profile information

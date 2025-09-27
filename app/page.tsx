@@ -39,6 +39,7 @@ export default function StudyTracker() {
   const [isDarkMode, setIsDarkMode] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saveLoading, setSaveLoading] = useState(false)
+  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split("T")[0])
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -47,66 +48,96 @@ export default function StudyTracker() {
     }
   }, [currentUser, router, loading])
 
-  // Load user data from Firebase
-  useEffect(() => {
-    const loadUserData = async () => {
-      if (!currentUser) {
-        setLoading(false)
-        return
+  // Load user data from Firebase for selected date
+  const loadUserDataForDate = async (dateString: string) => {
+    if (!currentUser) return
+
+    try {
+      setLoading(true)
+      
+      // Load base user progress (for targets and structure)
+      let userProgress = await firestoreService.getUserProgress(currentUser.uid)
+      
+      // If no progress exists, initialize with default subjects
+      if (!userProgress) {
+        try {
+          await firestoreService.initializeUserProgress(currentUser.uid)
+          userProgress = await firestoreService.getUserProgress(currentUser.uid)
+        } catch (initError) {
+          console.error('Error initializing user progress:', initError)
+          userProgress = null
+        }
       }
 
-      try {
-        setLoading(true)
+      if (userProgress) {
+        // Load progress for the specific selected date
+        const dateProgress = await firestoreService.getDailyProgressForDate(currentUser.uid, dateString)
         
-        // Load user progress
-        let userProgress = await firestoreService.getUserProgress(currentUser.uid)
-        
-        // If no progress exists, initialize with default subjects
-        if (!userProgress) {
-          try {
-            await firestoreService.initializeUserProgress(currentUser.uid)
-            userProgress = await firestoreService.getUserProgress(currentUser.uid)
-          } catch (initError) {
-            console.error('Error initializing user progress:', initError)
-            // Continue with empty progress instead of failing completely
-            userProgress = null
-          }
-        }
-
-        if (userProgress) {
-          setSubjectProgress(userProgress.subjects)
-          setTotalTarget(userProgress.totalTarget)
-          
-          // Calculate total questions from current progress
-          const total = userProgress.subjects.reduce(
-            (sum, subject) => sum + subject.correct + subject.wrong + subject.empty,
-            0
-          )
-          setTotalQuestions(total)
-        }
-
-        // Load daily history
-        const history = await firestoreService.getUserDailyHistory(currentUser.uid)
-        setDailyHistory(history)
-
-        // Load theme preference
-        const savedTheme = localStorage.getItem("theme")
-        if (savedTheme === "dark") {
-          setIsDarkMode(true)
-          document.documentElement.classList.add("dark")
+        let finalSubjects = userProgress.subjects
+        if (dateProgress) {
+          // If we have data for this date, use it
+          finalSubjects = userProgress.subjects.map(subject => {
+            const dateData = dateProgress.subjects[subject.name]
+            return dateData ? {
+              ...subject,
+              correct: dateData.correct,
+              wrong: dateData.wrong,
+              empty: dateData.empty
+            } : {
+              ...subject,
+              correct: 0,
+              wrong: 0,
+              empty: 0
+            }
+          })
         } else {
-          setIsDarkMode(false)
-          document.documentElement.classList.remove("dark")
+          // No data for this date, show empty progress
+          finalSubjects = userProgress.subjects.map(subject => ({
+            ...subject,
+            correct: 0,
+            wrong: 0,
+            empty: 0
+          }))
         }
-      } catch (error) {
-        console.error('Error loading user data:', error)
-      } finally {
-        setLoading(false)
-      }
-    }
 
-    loadUserData()
-  }, [currentUser])
+        setSubjectProgress(finalSubjects)
+        setTotalTarget(userProgress.totalTarget)
+        
+        // Calculate total questions for selected date
+        const total = finalSubjects.reduce(
+          (sum, subject) => sum + subject.correct + subject.wrong + subject.empty,
+          0
+        )
+        setTotalQuestions(total)
+      }
+
+      // Load daily history
+      const history = await firestoreService.getUserDailyHistory(currentUser.uid)
+      setDailyHistory(history)
+
+      // Load theme preference
+      const savedTheme = localStorage.getItem("theme")
+      if (savedTheme === "dark") {
+        setIsDarkMode(true)
+        document.documentElement.classList.add("dark")
+      } else {
+        setIsDarkMode(false)
+        document.documentElement.classList.remove("dark")
+      }
+    } catch (error) {
+      console.error('Error loading user data:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Load data when user or selected date changes
+  useEffect(() => {
+    if (currentUser) {
+      loadUserDataForDate(selectedDate)
+    }
+  }, [currentUser, selectedDate])
+
 
   // Save progress to Firebase whenever it changes
   useEffect(() => {
@@ -150,60 +181,41 @@ export default function StudyTracker() {
     }
   }
 
-  const updateQuestions = (subjectIndex: number, type: "correct" | "wrong" | "empty", change: number) => {
+  const updateQuestions = async (subjectIndex: number, type: "correct" | "wrong" | "empty", change: number) => {
     const newProgress = [...subjectProgress]
     newProgress[subjectIndex][type] = Math.max(0, newProgress[subjectIndex][type] + change)
 
     setSubjectProgress(newProgress)
     const newTotal = newProgress.reduce((sum, subject) => sum + subject.correct + subject.wrong + subject.empty, 0)
     setTotalQuestions(newTotal)
-  }
 
-  const resetDay = async () => {
-    if (!currentUser) return
-
-    try {
-      const today = new Date().toISOString().split("T")[0]
-      const todayProgress = {
-        date: today,
-        subjects: {} as Record<string, { correct: number; wrong: number; empty: number; total: number }>,
-        total: totalQuestions,
-      }
-
-      subjectProgress.forEach((subject) => {
-        const total = subject.correct + subject.wrong + subject.empty
-        todayProgress.subjects[subject.name] = {
-          correct: subject.correct,
-          wrong: subject.wrong,
-          empty: subject.empty,
-          total,
+    // Automatically save daily progress for selected date
+    if (currentUser) {
+      try {
+        const progressForDate = {
+          date: selectedDate,
+          subjects: {} as Record<string, { correct: number; wrong: number; empty: number; total: number }>,
+          total: newTotal,
         }
-      })
 
-      // Save today's progress to history
-      await firestoreService.saveDailyHistory(currentUser.uid, todayProgress)
+        newProgress.forEach((subject) => {
+          const total = subject.correct + subject.wrong + subject.empty
+          progressForDate.subjects[subject.name] = {
+            correct: subject.correct,
+            wrong: subject.wrong,
+            empty: subject.empty,
+            total,
+          }
+        })
 
-      // Reset current progress
-      const resetProgress = subjectProgress.map((subject) => ({
-        ...subject,
-        correct: 0,
-        wrong: 0,
-        empty: 0,
-      }))
-      
-      setSubjectProgress(resetProgress)
-      setTotalQuestions(0)
-      
-      // Save reset progress
-      await firestoreService.saveUserProgress(currentUser.uid, resetProgress, totalTarget)
-      
-      // Refresh history
-      const updatedHistory = await firestoreService.getUserDailyHistory(currentUser.uid)
-      setDailyHistory(updatedHistory)
-    } catch (error) {
-      console.error('Error resetting day:', error)
+        // Save/update progress for selected date
+        await firestoreService.saveDailyProgressForDate(currentUser.uid, progressForDate)
+      } catch (error) {
+        console.error('Error saving daily progress:', error)
+      }
     }
   }
+
 
   const updateTarget = (subjectIndex: number, newTarget: number) => {
     const newProgress = [...subjectProgress]
@@ -333,10 +345,6 @@ export default function StudyTracker() {
             <Button onClick={toggleTheme} variant="outline" size="sm" className="w-fit bg-transparent">
               {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </Button>
-            <Button onClick={resetDay} variant="outline" className="w-fit bg-transparent">
-              <Target className="w-4 h-4 mr-2" />
-              Günü Bitir
-            </Button>
             <Button onClick={handleLogout} variant="outline" size="sm" className="w-fit bg-transparent">
               <LogOut className="w-4 h-4 mr-2" />
               Çıkış
@@ -344,11 +352,41 @@ export default function StudyTracker() {
           </div>
         </div>
 
+        {/* Date Selector */}
+        <Card className="mb-4">
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <label className="text-sm font-medium">Tarih Seçin:</label>
+                <Input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="w-auto"
+                />
+                {selectedDate === new Date().toISOString().split("T")[0] && (
+                  <Badge variant="default" className="bg-green-600">
+                    Bugün
+                  </Badge>
+                )}
+              </div>
+              <div className="text-sm text-muted-foreground">
+                Seçili tarih: {new Date(selectedDate + 'T00:00:00').toLocaleDateString('tr-TR', { 
+                  weekday: 'long',
+                  day: 'numeric', 
+                  month: 'long', 
+                  year: 'numeric' 
+                })}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         <Tabs defaultValue="today" className="w-full">
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="today" className="flex items-center gap-2">
               <Target className="w-4 h-4" />
-              Bugün
+              Seçili Gün
             </TabsTrigger>
             <TabsTrigger value="weekly" className="flex items-center gap-2">
               <Calendar className="w-4 h-4" />
@@ -364,17 +402,19 @@ export default function StudyTracker() {
             {/* Overall Progress */}
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <TrendingUp className="w-5 h-5 text-primary" />
-                  Bugünkü Durum
+                <CardTitle className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="w-5 h-5 text-primary" />
+                    {selectedDate === new Date().toISOString().split("T")[0] ? "Bugünkü Durum" : "Seçili Gün Durumu"}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl font-bold">{totalQuestions}</span>
+                    <span className="text-muted-foreground">/ {totalTarget} soru</span>
+                  </div>
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-2xl font-bold">{totalQuestions}</span>
-                    <span className="text-muted-foreground">/ {totalTarget} soru</span>
-                  </div>
                   <div className="w-full bg-secondary rounded-full h-3">
                     <div
                       className="bg-primary h-3 rounded-full transition-all duration-300"
