@@ -108,16 +108,21 @@ class FirestoreService {
 
   // Save user profile information
   async saveUserProfile(userId: string, email: string, firstName: string, lastName: string): Promise<void> {
-    const profileRef = doc(db, 'userProfiles', userId)
-    await setDoc(profileRef, {
-      uid: userId,
-      email,
-      firstName,
-      lastName,
-      displayName: `${firstName} ${lastName}`,
-      createdAt: serverTimestamp(),
-      lastLoginAt: serverTimestamp()
-    })
+    try {
+      const profileRef = doc(db, 'userProfiles', userId)
+      await setDoc(profileRef, {
+        uid: userId,
+        email,
+        firstName,
+        lastName,
+        displayName: `${firstName} ${lastName}`,
+        createdAt: serverTimestamp(),
+        lastLoginAt: serverTimestamp()
+      })
+    } catch (error) {
+      console.error('Error saving user profile:', error)
+      throw error
+    }
   }
 
   // Update user's last login time
@@ -141,17 +146,28 @@ class FirestoreService {
 
   // Initialize user progress with default subjects
   async initializeUserProgress(userId: string): Promise<void> {
-    const defaultSubjects: SubjectData[] = [
-      { name: "Türkçe", icon: "🇹🇷", correct: 0, wrong: 0, empty: 0, target: 10, color: "bg-red-500" },
-      { name: "Matematik", icon: "🔢", correct: 0, wrong: 0, empty: 0, target: 15, color: "bg-blue-500" },
-      { name: "Sosyal Bilgiler", icon: "🌍", correct: 0, wrong: 0, empty: 0, target: 8, color: "bg-green-500" },
-      { name: "Fen Bilimleri", icon: "🔬", correct: 0, wrong: 0, empty: 0, target: 12, color: "bg-purple-500" },
-      { name: "İngilizce", icon: "🇬🇧", correct: 0, wrong: 0, empty: 0, target: 10, color: "bg-yellow-500" },
-      { name: "Din Kültürü", icon: "📿", correct: 0, wrong: 0, empty: 0, target: 5, color: "bg-orange-500" },
-    ]
-    
-    const totalTarget = defaultSubjects.reduce((sum, subject) => sum + subject.target, 0)
-    await this.saveUserProgress(userId, defaultSubjects, totalTarget)
+    try {
+      // Check if progress already exists to avoid duplicates
+      const existingProgress = await this.getUserProgress(userId)
+      if (existingProgress) {
+        return // Already initialized
+      }
+
+      const defaultSubjects: SubjectData[] = [
+        { name: "Türkçe", icon: "🇹🇷", correct: 0, wrong: 0, empty: 0, target: 10, color: "bg-red-500" },
+        { name: "Matematik", icon: "🔢", correct: 0, wrong: 0, empty: 0, target: 15, color: "bg-blue-500" },
+        { name: "Sosyal Bilgiler", icon: "🌍", correct: 0, wrong: 0, empty: 0, target: 8, color: "bg-green-500" },
+        { name: "Fen Bilimleri", icon: "🔬", correct: 0, wrong: 0, empty: 0, target: 12, color: "bg-purple-500" },
+        { name: "İngilizce", icon: "🇬🇧", correct: 0, wrong: 0, empty: 0, target: 10, color: "bg-yellow-500" },
+        { name: "Din Kültürü", icon: "📿", correct: 0, wrong: 0, empty: 0, target: 5, color: "bg-orange-500" },
+      ]
+      
+      const totalTarget = defaultSubjects.reduce((sum, subject) => sum + subject.target, 0)
+      await this.saveUserProgress(userId, defaultSubjects, totalTarget)
+    } catch (error) {
+      console.error('Error initializing user progress:', error)
+      throw error
+    }
   }
 }
 

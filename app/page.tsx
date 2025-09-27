@@ -63,8 +63,14 @@ export default function StudyTracker() {
         
         // If no progress exists, initialize with default subjects
         if (!userProgress) {
-          await firestoreService.initializeUserProgress(currentUser.uid)
-          userProgress = await firestoreService.getUserProgress(currentUser.uid)
+          try {
+            await firestoreService.initializeUserProgress(currentUser.uid)
+            userProgress = await firestoreService.getUserProgress(currentUser.uid)
+          } catch (initError) {
+            console.error('Error initializing user progress:', initError)
+            // Continue with empty progress instead of failing completely
+            userProgress = null
+          }
         }
 
         if (userProgress) {

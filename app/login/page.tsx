@@ -54,8 +54,18 @@ export default function LoginPage() {
         case 'auth/too-many-requests':
           setError('Çok fazla başarısız deneme. Lütfen daha sonra tekrar deneyin.')
           break
+        case 'permission-denied':
+          setError('Veritabanına erişim reddedildi. Lütfen daha sonra tekrar deneyin.')
+          break
+        case 'unavailable':
+          setError('Veritabanı hizmeti geçici olarak kullanılamıyor. Lütfen tekrar deneyin.')
+          break
         default:
-          setError('Bir hata oluştu. Lütfen tekrar deneyin.')
+          if (error.message?.includes('firestore') || error.message?.includes('database')) {
+            setError('Veritabanı hatası oluştu. Hesabınız oluşturuldu ancak profil kaydedilmedi.')
+          } else {
+            setError('Bir hata oluştu. Lütfen tekrar deneyin.')
+          }
       }
     } finally {
       setLoading(false)
