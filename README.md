@@ -5,6 +5,7 @@ A Turkish study tracker application built with Next.js and Firebase for tracking
 ## Features
 
 - 🔐 **User Authentication** - Secure login/registration with Firebase Auth
+- 👤 **User Profiles** - Collect firstname/lastname during registration  
 - 📊 **Progress Tracking** - Track correct, wrong, and empty answers by subject
 - 🎯 **Goal Setting** - Set and modify daily targets for each subject
 - 📈 **Statistics** - View daily, weekly, and all-time progress

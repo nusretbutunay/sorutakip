@@ -314,7 +314,7 @@ export default function StudyTracker() {
           <div>
             <h1 className="text-3xl font-bold text-balance">Soru Takip</h1>
             <p className="text-muted-foreground">
-              Hoşgeldin, {currentUser.email?.split('@')[0]} 👋
+              Hoşgeldin, {currentUser.displayName || currentUser.email?.split('@')[0]} 👋
             </p>
           </div>
           <div className="flex items-center gap-2">

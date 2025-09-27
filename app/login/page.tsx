@@ -11,6 +11,8 @@ import { BookOpen, User, Lock, Mail, AlertCircle } from 'lucide-react'
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
   const [isRegistering, setIsRegistering] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -24,7 +26,7 @@ export default function LoginPage() {
 
     try {
       if (isRegistering) {
-        await register(email, password)
+        await register(email, password, firstName, lastName)
       } else {
         await login(email, password)
       }
@@ -84,6 +86,40 @@ export default function LoginPage() {
                   <AlertCircle className="w-4 h-4" />
                   <span className="text-sm">{error}</span>
                 </div>
+              )}
+
+              {isRegistering && (
+                <>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Ad</label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        type="text"
+                        placeholder="Adınız"
+                        value={firstName}
+                        onChange={(e) => setFirstName(e.target.value)}
+                        className="pl-10"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Soyad</label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        type="text"
+                        placeholder="Soyadınız"
+                        value={lastName}
+                        onChange={(e) => setLastName(e.target.value)}
+                        className="pl-10"
+                        required
+                      />
+                    </div>
+                  </div>
+                </>
               )}
 
               <div className="space-y-2">
@@ -147,6 +183,11 @@ export default function LoginPage() {
                 onClick={() => {
                   setIsRegistering(!isRegistering)
                   setError('')
+                  // Clear form fields when switching modes
+                  setFirstName('')
+                  setLastName('')
+                  setEmail('')
+                  setPassword('')
                 }}
                 className="text-sm"
               >

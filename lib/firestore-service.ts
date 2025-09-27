@@ -37,6 +37,16 @@ export interface UserProgress {
   lastUpdated: any
 }
 
+export interface UserProfile {
+  uid: string
+  email: string
+  firstName: string
+  lastName: string
+  displayName: string
+  createdAt: any
+  lastLoginAt: any
+}
+
 class FirestoreService {
   // Save user's current progress
   async saveUserProgress(userId: string, subjects: SubjectData[], totalTarget: number): Promise<void> {
@@ -94,6 +104,39 @@ class FirestoreService {
     })
     
     return history
+  }
+
+  // Save user profile information
+  async saveUserProfile(userId: string, email: string, firstName: string, lastName: string): Promise<void> {
+    const profileRef = doc(db, 'userProfiles', userId)
+    await setDoc(profileRef, {
+      uid: userId,
+      email,
+      firstName,
+      lastName,
+      displayName: `${firstName} ${lastName}`,
+      createdAt: serverTimestamp(),
+      lastLoginAt: serverTimestamp()
+    })
+  }
+
+  // Update user's last login time
+  async updateLastLogin(userId: string): Promise<void> {
+    const profileRef = doc(db, 'userProfiles', userId)
+    await setDoc(profileRef, {
+      lastLoginAt: serverTimestamp()
+    }, { merge: true })
+  }
+
+  // Get user profile
+  async getUserProfile(userId: string): Promise<UserProfile | null> {
+    const profileRef = doc(db, 'userProfiles', userId)
+    const profileSnap = await getDoc(profileRef)
+    
+    if (profileSnap.exists()) {
+      return profileSnap.data() as UserProfile
+    }
+    return null
   }
 
   // Initialize user progress with default subjects

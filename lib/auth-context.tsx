@@ -7,14 +7,16 @@ import {
   createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  updateProfile
 } from 'firebase/auth'
 import { auth } from './firebase'
+import { firestoreService } from './firestore-service'
 
 interface AuthContextType {
   currentUser: User | null
   login: (email: string, password: string) => Promise<void>
-  register: (email: string, password: string) => Promise<void>
+  register: (email: string, password: string, firstName: string, lastName: string) => Promise<void>
   logout: () => Promise<void>
   resetPassword: (email: string) => Promise<void>
   loading: boolean
@@ -30,12 +32,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const register = async (email: string, password: string) => {
-    await createUserWithEmailAndPassword(auth, email, password)
+  const register = async (email: string, password: string, firstName: string, lastName: string) => {
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password)
+    
+    // Update the user's profile with their display name
+    await updateProfile(userCredential.user, {
+      displayName: `${firstName} ${lastName}`
+    })
+    
+    // Save user profile to Firestore
+    await firestoreService.saveUserProfile(userCredential.user.uid, email, firstName, lastName)
+    
+    // Force a refresh of the current user to get updated profile
+    setCurrentUser({ ...userCredential.user, displayName: `${firstName} ${lastName}` })
   }
 
   const login = async (email: string, password: string) => {
-    await signInWithEmailAndPassword(auth, email, password)
+    const userCredential = await signInWithEmailAndPassword(auth, email, password)
+    
+    // Update last login time
+    await firestoreService.updateLastLogin(userCredential.user.uid)
   }
 
   const logout = async () => {
