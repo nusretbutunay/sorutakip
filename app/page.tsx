@@ -157,7 +157,7 @@ export default function StudyTracker() {
     // Debounce the save operation
     const timeoutId = setTimeout(saveProgress, 1000)
     return () => clearTimeout(timeoutId)
-  }, [currentUser, subjectProgress, totalTarget, loading])
+  }, [currentUser, subjectProgress, totalTarget, dataLoading])
 
   const toggleTheme = () => {
     const newTheme = !isDarkMode
