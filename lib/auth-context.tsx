@@ -43,8 +43,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Save user profile to Firestore
     await firestoreService.saveUserProfile(userCredential.user.uid, email, firstName, lastName)
     
-    // Initialize user progress immediately after profile creation
-    await firestoreService.initializeUserProgress(userCredential.user.uid)
+    // Initialize user settings immediately after profile creation
+    await firestoreService.initializeUserSettings(userCredential.user.uid)
     
     // Don't manually set currentUser - let onAuthStateChanged handle it
   }

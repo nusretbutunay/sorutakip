@@ -25,8 +25,9 @@ export interface SubjectData {
 
 export interface DailyProgress {
   date: string
-  subjects: Record<string, { correct: number; wrong: number; empty: number; total: number }>
+  subjects: Record<string, { correct: number; wrong: number; empty: number; total: number; target: number }>
   total: number
+  totalTarget: number
   userId: string
   timestamp: any
 }
@@ -36,6 +37,12 @@ export interface UserProgress {
   totalTarget: number
   lastUpdated: any
   lastUpdateDate?: string // YYYY-MM-DD format for easy date comparison
+}
+
+export interface UserSettings {
+  subjects: SubjectData[]
+  totalTarget: number
+  lastUpdated: any
 }
 
 export interface UserProfile {
@@ -67,6 +74,35 @@ class FirestoreService {
     
     if (progressSnap.exists()) {
       return progressSnap.data() as UserProgress
+    }
+    return null
+  }
+
+  // Save user settings (subjects structure and targets only)
+  async saveUserSettings(userId: string, subjects: SubjectData[], totalTarget: number): Promise<void> {
+    const settingsRef = doc(db, 'userSettings', userId)
+    // Save only the structure and targets, not the actual progress numbers
+    const settingsSubjects = subjects.map(subject => ({
+      ...subject,
+      correct: 0, // Reset progress numbers in settings
+      wrong: 0,
+      empty: 0
+    }))
+    
+    await setDoc(settingsRef, {
+      subjects: settingsSubjects,
+      totalTarget,
+      lastUpdated: serverTimestamp()
+    })
+  }
+
+  // Get user settings
+  async getUserSettings(userId: string): Promise<UserSettings | null> {
+    const settingsRef = doc(db, 'userSettings', userId)
+    const settingsSnap = await getDoc(settingsRef)
+    
+    if (settingsSnap.exists()) {
+      return settingsSnap.data() as UserSettings
     }
     return null
   }
@@ -193,7 +229,33 @@ class FirestoreService {
     return null
   }
 
-  // Initialize user progress with default subjects
+  // Initialize user settings with default subjects
+  async initializeUserSettings(userId: string): Promise<void> {
+    try {
+      // Check if settings already exist to avoid duplicates
+      const existingSettings = await this.getUserSettings(userId)
+      if (existingSettings) {
+        return // Already initialized
+      }
+
+      const defaultSubjects: SubjectData[] = [
+        { name: "Türkçe", icon: "🇹🇷", correct: 0, wrong: 0, empty: 0, target: 10, color: "bg-red-500" },
+        { name: "Matematik", icon: "🔢", correct: 0, wrong: 0, empty: 0, target: 15, color: "bg-blue-500" },
+        { name: "Sosyal Bilgiler", icon: "🌍", correct: 0, wrong: 0, empty: 0, target: 8, color: "bg-green-500" },
+        { name: "Fen Bilimleri", icon: "🔬", correct: 0, wrong: 0, empty: 0, target: 12, color: "bg-purple-500" },
+        { name: "İngilizce", icon: "🇬🇧", correct: 0, wrong: 0, empty: 0, target: 10, color: "bg-yellow-500" },
+        { name: "Din Kültürü", icon: "📿", correct: 0, wrong: 0, empty: 0, target: 5, color: "bg-orange-500" },
+      ]
+      
+      const totalTarget = defaultSubjects.reduce((sum, subject) => sum + subject.target, 0)
+      await this.saveUserSettings(userId, defaultSubjects, totalTarget)
+    } catch (error) {
+      console.error('Error initializing user settings:', error)
+      throw error
+    }
+  }
+
+  // Initialize user progress with default subjects (legacy method - kept for compatibility)
   async initializeUserProgress(userId: string): Promise<void> {
     try {
       // Check if progress already exists to avoid duplicates

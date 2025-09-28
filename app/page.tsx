@@ -38,6 +38,7 @@ export default function StudyTracker() {
   const [editingTarget, setEditingTarget] = useState<number | null>(null)
   const [isDarkMode, setIsDarkMode] = useState(false)
   const [dataLoading, setDataLoading] = useState(true)
+  const [dateLoading, setDateLoading] = useState(false)
   const [saveLoading, setSaveLoading] = useState(false)
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split("T")[0])
 
@@ -49,59 +50,68 @@ export default function StudyTracker() {
   }, [currentUser, router, authLoading])
 
   // Load user data from Firebase for selected date
-  const loadUserDataForDate = async (dateString: string) => {
+  const loadUserDataForDate = async (dateString: string, isInitialLoad = false) => {
     if (!currentUser) return
 
     try {
-      setDataLoading(true)
+      if (isInitialLoad) {
+        setDataLoading(true)
+      } else {
+        setDateLoading(true)
+      }
       
-      // Load base user progress (for targets and structure)
-      let userProgress = await firestoreService.getUserProgress(currentUser.uid)
+      // Load user settings (subjects structure and targets)
+      let userSettings = await firestoreService.getUserSettings(currentUser.uid)
       
-      // If no progress exists, initialize with default subjects
-      if (!userProgress) {
+      // If no settings exist, initialize with default subjects
+      if (!userSettings) {
         try {
-          await firestoreService.initializeUserProgress(currentUser.uid)
-          userProgress = await firestoreService.getUserProgress(currentUser.uid)
+          await firestoreService.initializeUserSettings(currentUser.uid)
+          userSettings = await firestoreService.getUserSettings(currentUser.uid)
         } catch (initError) {
-          console.error('Error initializing user progress:', initError)
-          userProgress = null
+          console.error('Error initializing user settings:', initError)
+          userSettings = null
         }
       }
 
-      if (userProgress) {
+      if (userSettings) {
         // Load progress for the specific selected date
         const dateProgress = await firestoreService.getDailyProgressForDate(currentUser.uid, dateString)
         
-        let finalSubjects = userProgress.subjects
+        let finalSubjects = userSettings.subjects
         if (dateProgress) {
-          // If we have data for this date, use it
-          finalSubjects = userProgress.subjects.map(subject => {
+          // If we have data for this date, use it (including daily targets)
+          finalSubjects = userSettings.subjects.map(subject => {
             const dateData = dateProgress.subjects[subject.name]
             return dateData ? {
               ...subject,
               correct: dateData.correct,
               wrong: dateData.wrong,
-              empty: dateData.empty
+              empty: dateData.empty,
+              target: dateData.target || subject.target // Use saved daily target or default
             } : {
               ...subject,
               correct: 0,
               wrong: 0,
               empty: 0
+              // Keep default target from settings
             }
           })
+          // Use saved daily total target or calculate from subjects
+          setTotalTarget(dateProgress.totalTarget || finalSubjects.reduce((sum, s) => sum + s.target, 0))
         } else {
-          // No data for this date, show empty progress
-          finalSubjects = userProgress.subjects.map(subject => ({
+          // No data for this date, use default settings
+          finalSubjects = userSettings.subjects.map(subject => ({
             ...subject,
             correct: 0,
             wrong: 0,
             empty: 0
+            // Keep default target from settings
           }))
+          setTotalTarget(userSettings.totalTarget)
         }
 
         setSubjectProgress(finalSubjects)
-        setTotalTarget(userProgress.totalTarget)
         
         // Calculate total questions for selected date
         const total = finalSubjects.reduce(
@@ -127,37 +137,49 @@ export default function StudyTracker() {
     } catch (error) {
       console.error('Error loading user data:', error)
     } finally {
-      setDataLoading(false)
+      if (isInitialLoad) {
+        setDataLoading(false)
+      } else {
+        setDateLoading(false)
+      }
     }
   }
 
-  // Load data when user or selected date changes
+  // Initial data load when user logs in
   useEffect(() => {
-    if (currentUser) {
-      loadUserDataForDate(selectedDate)
+    if (currentUser && dataLoading) {
+      loadUserDataForDate(selectedDate, true)
     }
-  }, [currentUser, selectedDate])
+  }, [currentUser])
 
-
-  // Save progress to Firebase whenever it changes
+  // Load data when selected date changes (after initial load)
   useEffect(() => {
-    const saveProgress = async () => {
-      if (!currentUser || dataLoading || subjectProgress.length === 0) return
+    if (currentUser && !dataLoading) {
+      loadUserDataForDate(selectedDate, false)
+    }
+  }, [selectedDate])
+
+
+  // Save user settings (targets) to Firebase when they change
+  useEffect(() => {
+    const saveSettings = async () => {
+      if (!currentUser || dataLoading || dateLoading || subjectProgress.length === 0) return
       
       try {
         setSaveLoading(true)
-        await firestoreService.saveUserProgress(currentUser.uid, subjectProgress, totalTarget)
+        // Only save settings (subjects structure and targets), not daily progress
+        await firestoreService.saveUserSettings(currentUser.uid, subjectProgress, totalTarget)
       } catch (error) {
-        console.error('Error saving progress:', error)
+        console.error('Error saving user settings:', error)
       } finally {
         setSaveLoading(false)
       }
     }
 
     // Debounce the save operation
-    const timeoutId = setTimeout(saveProgress, 1000)
+    const timeoutId = setTimeout(saveSettings, 1000)
     return () => clearTimeout(timeoutId)
-  }, [currentUser, subjectProgress, totalTarget, dataLoading])
+  }, [currentUser, totalTarget, dataLoading, dateLoading]) // Removed subjectProgress from deps since we don't save progress here
 
   const toggleTheme = () => {
     const newTheme = !isDarkMode
@@ -194,8 +216,9 @@ export default function StudyTracker() {
       try {
         const progressForDate = {
           date: selectedDate,
-          subjects: {} as Record<string, { correct: number; wrong: number; empty: number; total: number }>,
+          subjects: {} as Record<string, { correct: number; wrong: number; empty: number; total: number; target: number }>,
           total: newTotal,
+          totalTarget: totalTarget,
         }
 
         newProgress.forEach((subject) => {
@@ -205,8 +228,12 @@ export default function StudyTracker() {
             wrong: subject.wrong,
             empty: subject.empty,
             total,
+            target: subject.target, // Save targets per day!
           }
         })
+        
+        // Also save the total target for this date
+        progressForDate.totalTarget = totalTarget
 
         // Save/update progress for selected date
         await firestoreService.saveDailyProgressForDate(currentUser.uid, progressForDate)
@@ -217,7 +244,7 @@ export default function StudyTracker() {
   }
 
 
-  const updateTarget = (subjectIndex: number, newTarget: number) => {
+  const updateTarget = async (subjectIndex: number, newTarget: number) => {
     const newProgress = [...subjectProgress]
     newProgress[subjectIndex].target = Math.max(1, newTarget)
 
@@ -225,12 +252,40 @@ export default function StudyTracker() {
     const newTotalTarget = newProgress.reduce((sum, subject) => sum + subject.target, 0)
     setTotalTarget(newTotalTarget)
     setEditingTarget(null)
+
+    // Save target changes to dailyHistory for the selected date
+    if (currentUser) {
+      try {
+        const total = newProgress.reduce((sum, subject) => sum + subject.correct + subject.wrong + subject.empty, 0)
+        const progressForDate = {
+          date: selectedDate,
+          subjects: {} as Record<string, { correct: number; wrong: number; empty: number; total: number; target: number }>,
+          total: total,
+          totalTarget: newTotalTarget,
+        }
+
+        newProgress.forEach((subject) => {
+          const subjectTotal = subject.correct + subject.wrong + subject.empty
+          progressForDate.subjects[subject.name] = {
+            correct: subject.correct,
+            wrong: subject.wrong,
+            empty: subject.empty,
+            total: subjectTotal,
+            target: subject.target, // Save the updated targets!
+          }
+        })
+
+        await firestoreService.saveDailyProgressForDate(currentUser.uid, progressForDate)
+      } catch (error) {
+        console.error('Error saving target changes:', error)
+      }
+    }
   }
 
-  const handleTargetKeyPress = (e: React.KeyboardEvent, subjectIndex: number, value: string) => {
+  const handleTargetKeyPress = async (e: React.KeyboardEvent, subjectIndex: number, value: string) => {
     if (e.key === "Enter") {
       const newTarget = Number.parseInt(value) || 1
-      updateTarget(subjectIndex, newTarget)
+      await updateTarget(subjectIndex, newTarget)
     } else if (e.key === "Escape") {
       setEditingTarget(null)
     }
@@ -272,24 +327,33 @@ export default function StudyTracker() {
   }
 
   const calculateWeeklyStats = () => {
-    const weekAgo = new Date()
-    weekAgo.setDate(weekAgo.getDate() - 7)
+    const today = new Date()
+    const currentDay = today.getDay() // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    const mondayOffset = currentDay === 0 ? -6 : 1 - currentDay // Calculate days back to Monday
+    
+    // Find Monday of current week
+    const mondayOfCurrentWeek = new Date(today)
+    mondayOfCurrentWeek.setDate(today.getDate() + mondayOffset)
+    mondayOfCurrentWeek.setHours(0, 0, 0, 0)
 
     const weeklyStats: Record<string, { correct: number; wrong: number; empty: number; total: number }> = {}
 
-    // Initialize with current day progress
+    // Initialize all subjects with zero values
     subjectProgress.forEach((subject) => {
       weeklyStats[subject.name] = {
-        correct: subject.correct,
-        wrong: subject.wrong,
-        empty: subject.empty,
-        total: subject.correct + subject.wrong + subject.empty,
+        correct: 0,
+        wrong: 0,
+        empty: 0,
+        total: 0,
       }
     })
 
-    // Add last 7 days from history
+    // Add progress from Monday to today (inclusive)
     dailyHistory
-      .filter((day) => new Date(day.date) >= weekAgo)
+      .filter((day) => {
+        const dayDate = new Date(day.date + 'T00:00:00')
+        return dayDate >= mondayOfCurrentWeek && dayDate <= today
+      })
       .forEach((day) => {
         Object.entries(day.subjects).forEach(([subjectName, data]) => {
           if (weeklyStats[subjectName]) {
@@ -300,6 +364,18 @@ export default function StudyTracker() {
           }
         })
       })
+
+    // Add today's progress if it's the selected date
+    if (selectedDate === today.toISOString().split("T")[0]) {
+      subjectProgress.forEach((subject) => {
+        if (weeklyStats[subject.name]) {
+          weeklyStats[subject.name].correct += subject.correct
+          weeklyStats[subject.name].wrong += subject.wrong
+          weeklyStats[subject.name].empty += subject.empty
+          weeklyStats[subject.name].total += subject.correct + subject.wrong + subject.empty
+        }
+      })
+    }
 
     return weeklyStats
   }
@@ -370,12 +446,21 @@ export default function StudyTracker() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <label className="text-sm font-medium">Tarih Seçin:</label>
-                <Input
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="w-auto"
-                />
+                <div className="relative">
+                  <Input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="w-auto"
+                    disabled={dateLoading}
+                    max={new Date().toISOString().split("T")[0]}
+                  />
+                  {dateLoading && (
+                    <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
+                      <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                    </div>
+                  )}
+                </div>
                 {selectedDate === new Date().toISOString().split("T")[0] && (
                   <Badge variant="default" className="bg-green-600">
                     Bugün
