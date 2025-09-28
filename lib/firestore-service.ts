@@ -148,6 +148,7 @@ class FirestoreService {
           date: data.date,
           subjects: data.subjects,
           total: data.total,
+          totalTarget: data.totalTarget,
           userId: data.userId,
           timestamp: data.timestamp
         }
@@ -179,6 +180,7 @@ class FirestoreService {
           date: data.date,
           subjects: data.subjects,
           total: data.total,
+          totalTarget: data.totalTarget,
           userId: data.userId,
           timestamp: data.timestamp
         })

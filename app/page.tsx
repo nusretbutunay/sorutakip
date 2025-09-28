@@ -507,14 +507,6 @@ export default function StudyTracker() {
                   <span className="text-sm text-muted-foreground">(Bugün)</span>
                 )}
               </div>
-              <div className="text-sm text-muted-foreground">
-                Seçili tarih: {new Date(selectedDate + 'T00:00:00').toLocaleDateString('tr-TR', { 
-                  weekday: 'long',
-                  day: 'numeric', 
-                  month: 'long', 
-                  year: 'numeric' 
-                })}{selectedDate === new Date().toISOString().split("T")[0] ? " (Bugün)" : ""}
-              </div>
             </div>
           </CardContent>
         </Card>
