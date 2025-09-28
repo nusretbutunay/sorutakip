@@ -29,7 +29,7 @@ import {
 } from "lucide-react"
 
 export default function StudyTracker() {
-  const { currentUser, logout } = useAuth()
+  const { currentUser, logout, loading: authLoading } = useAuth()
   const router = useRouter()
   const [subjectProgress, setSubjectProgress] = useState<SubjectData[]>([])
   const [dailyHistory, setDailyHistory] = useState<DailyProgress[]>([])
@@ -37,23 +37,23 @@ export default function StudyTracker() {
   const [totalTarget, setTotalTarget] = useState(60)
   const [editingTarget, setEditingTarget] = useState<number | null>(null)
   const [isDarkMode, setIsDarkMode] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [dataLoading, setDataLoading] = useState(true)
   const [saveLoading, setSaveLoading] = useState(false)
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split("T")[0])
 
   // Redirect to login if not authenticated
   useEffect(() => {
-    if (!currentUser && !loading) {
+    if (!authLoading && !currentUser) {
       router.push('/login')
     }
-  }, [currentUser, router, loading])
+  }, [currentUser, router, authLoading])
 
   // Load user data from Firebase for selected date
   const loadUserDataForDate = async (dateString: string) => {
     if (!currentUser) return
 
     try {
-      setLoading(true)
+      setDataLoading(true)
       
       // Load base user progress (for targets and structure)
       let userProgress = await firestoreService.getUserProgress(currentUser.uid)
@@ -127,7 +127,7 @@ export default function StudyTracker() {
     } catch (error) {
       console.error('Error loading user data:', error)
     } finally {
-      setLoading(false)
+      setDataLoading(false)
     }
   }
 
@@ -142,7 +142,7 @@ export default function StudyTracker() {
   // Save progress to Firebase whenever it changes
   useEffect(() => {
     const saveProgress = async () => {
-      if (!currentUser || loading || subjectProgress.length === 0) return
+      if (!currentUser || dataLoading || subjectProgress.length === 0) return
       
       try {
         setSaveLoading(true)
@@ -304,8 +304,8 @@ export default function StudyTracker() {
     return weeklyStats
   }
 
-  // Show loading screen while authenticating or loading data
-  if (loading) {
+  // Show loading screen while authenticating
+  if (authLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
@@ -316,9 +316,21 @@ export default function StudyTracker() {
     )
   }
 
-  // Don't render if user is not authenticated
+  // Don't render if user is not authenticated (will redirect)
   if (!currentUser) {
     return null
+  }
+
+  // Show loading screen while loading data
+  if (dataLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Veriler yükleniyor...</p>
+        </div>
+      </div>
+    )
   }
 
   const allTimeStats = calculateAllTimeStats()
