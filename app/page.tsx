@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -298,20 +298,27 @@ export default function StudyTracker() {
 
   const overallProgress = totalTarget > 0 ? (totalQuestions / totalTarget) * 100 : 0
 
+  // Define calculation functions FIRST before using them in hooks
   const calculateAllTimeStats = () => {
     const allTimeStats: Record<string, { correct: number; wrong: number; empty: number; total: number }> = {}
 
-    // Initialize with current day progress
-    subjectProgress.forEach((subject) => {
-      allTimeStats[subject.name] = {
-        correct: subject.correct,
-        wrong: subject.wrong,
-        empty: subject.empty,
-        total: subject.correct + subject.wrong + subject.empty,
+    // Get subject names from the first history entry or current progress as fallback
+    const subjectNames = dailyHistory.length > 0 
+      ? Object.keys(dailyHistory[0].subjects)
+      : subjectProgress.map(s => s.name)
+
+    // Initialize all subjects with zero values
+    subjectNames.forEach((subjectName) => {
+      allTimeStats[subjectName] = {
+        correct: 0,
+        wrong: 0,
+        empty: 0,
+        total: 0,
       }
     })
 
-    // Add historical data
+    // Add ONLY saved historical data from dailyHistory
+    // This prevents duplication and ensures consistency
     dailyHistory.forEach((day) => {
       Object.entries(day.subjects).forEach(([subjectName, data]) => {
         if (allTimeStats[subjectName]) {
@@ -328,19 +335,25 @@ export default function StudyTracker() {
 
   const calculateWeeklyStats = () => {
     const today = new Date()
+    const todayString = today.toISOString().split("T")[0]
     const currentDay = today.getDay() // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
     const mondayOffset = currentDay === 0 ? -6 : 1 - currentDay // Calculate days back to Monday
     
     // Find Monday of current week
     const mondayOfCurrentWeek = new Date(today)
     mondayOfCurrentWeek.setDate(today.getDate() + mondayOffset)
-    mondayOfCurrentWeek.setHours(0, 0, 0, 0)
+    const mondayString = mondayOfCurrentWeek.toISOString().split("T")[0]
 
     const weeklyStats: Record<string, { correct: number; wrong: number; empty: number; total: number }> = {}
 
+    // Get subject names from the first history entry or current progress as fallback
+    const subjectNames = dailyHistory.length > 0 
+      ? Object.keys(dailyHistory[0].subjects)
+      : subjectProgress.map(s => s.name)
+
     // Initialize all subjects with zero values
-    subjectProgress.forEach((subject) => {
-      weeklyStats[subject.name] = {
+    subjectNames.forEach((subjectName) => {
+      weeklyStats[subjectName] = {
         correct: 0,
         wrong: 0,
         empty: 0,
@@ -348,37 +361,68 @@ export default function StudyTracker() {
       }
     })
 
-    // Add progress from Monday to today (inclusive)
-    dailyHistory
-      .filter((day) => {
-        const dayDate = new Date(day.date + 'T00:00:00')
-        return dayDate >= mondayOfCurrentWeek && dayDate <= today
-      })
-      .forEach((day) => {
-        Object.entries(day.subjects).forEach(([subjectName, data]) => {
-          if (weeklyStats[subjectName]) {
-            weeklyStats[subjectName].correct += data.correct
-            weeklyStats[subjectName].wrong += data.wrong
-            weeklyStats[subjectName].empty += data.empty
-            weeklyStats[subjectName].total += data.total
-          }
-        })
-      })
+    // Add ONLY saved progress from Monday to today (inclusive) from dailyHistory
+    // This is completely independent of selectedDate
+    const thisWeekHistory = dailyHistory.filter((day) => {
+      return day.date >= mondayString && day.date <= todayString
+    })
 
-    // Add today's progress if it's the selected date
-    if (selectedDate === today.toISOString().split("T")[0]) {
-      subjectProgress.forEach((subject) => {
-        if (weeklyStats[subject.name]) {
-          weeklyStats[subject.name].correct += subject.correct
-          weeklyStats[subject.name].wrong += subject.wrong
-          weeklyStats[subject.name].empty += subject.empty
-          weeklyStats[subject.name].total += subject.correct + subject.wrong + subject.empty
+    thisWeekHistory.forEach((day) => {
+      Object.entries(day.subjects).forEach(([subjectName, data]) => {
+        if (weeklyStats[subjectName]) {
+          weeklyStats[subjectName].correct += data.correct
+          weeklyStats[subjectName].wrong += data.wrong
+          weeklyStats[subjectName].empty += data.empty
+          weeklyStats[subjectName].total += data.total
         }
       })
-    }
+    })
 
     return weeklyStats
   }
+
+  // Make stats calculations reactive to data changes - AFTER function definitions
+  const allTimeStats = useMemo(() => {
+    const stats = calculateAllTimeStats()
+    
+    // Add today's progress if it's not already in dailyHistory
+    const today = new Date().toISOString().split("T")[0]
+    const todayInHistory = dailyHistory.some(day => day.date === today)
+    
+    if (!todayInHistory && selectedDate === today && subjectProgress.some(s => s.correct > 0 || s.wrong > 0 || s.empty > 0)) {
+      subjectProgress.forEach((subject) => {
+        if (stats[subject.name]) {
+          stats[subject.name].correct += subject.correct
+          stats[subject.name].wrong += subject.wrong
+          stats[subject.name].empty += subject.empty
+          stats[subject.name].total += subject.correct + subject.wrong + subject.empty
+        }
+      })
+    }
+    
+    return stats
+  }, [dailyHistory, subjectProgress, selectedDate])
+  
+  const weeklyStats = useMemo(() => {
+    const stats = calculateWeeklyStats()
+    
+    // Add today's progress if it's not already in dailyHistory and it's within current week
+    const today = new Date().toISOString().split("T")[0]
+    const todayInHistory = dailyHistory.some(day => day.date === today)
+    
+    if (!todayInHistory && selectedDate === today && subjectProgress.some(s => s.correct > 0 || s.wrong > 0 || s.empty > 0)) {
+      subjectProgress.forEach((subject) => {
+        if (stats[subject.name]) {
+          stats[subject.name].correct += subject.correct
+          stats[subject.name].wrong += subject.wrong
+          stats[subject.name].empty += subject.empty
+          stats[subject.name].total += subject.correct + subject.wrong + subject.empty
+        }
+      })
+    }
+    
+    return stats
+  }, [dailyHistory, subjectProgress, selectedDate])
 
   // Show loading screen while authenticating
   if (authLoading) {
@@ -409,8 +453,6 @@ export default function StudyTracker() {
     )
   }
 
-  const allTimeStats = calculateAllTimeStats()
-  const weeklyStats = calculateWeeklyStats()
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-6">
@@ -462,9 +504,7 @@ export default function StudyTracker() {
                   )}
                 </div>
                 {selectedDate === new Date().toISOString().split("T")[0] && (
-                  <Badge variant="default" className="bg-green-600">
-                    Bugün
-                  </Badge>
+                  <span className="text-sm text-muted-foreground">(Bugün)</span>
                 )}
               </div>
               <div className="text-sm text-muted-foreground">
@@ -473,7 +513,7 @@ export default function StudyTracker() {
                   day: 'numeric', 
                   month: 'long', 
                   year: 'numeric' 
-                })}
+                })}{selectedDate === new Date().toISOString().split("T")[0] ? " (Bugün)" : ""}
               </div>
             </div>
           </CardContent>
